@@ -20,6 +20,7 @@ RUN apk add --no-cache git
 RUN git clone $REPO_URL . && \
     git checkout $DEFAULT_BRANCH && \
     npm install
+CMD ["npm", "run", "build"]
 CMD ["npm", "run", "start"]
 EOF
 
