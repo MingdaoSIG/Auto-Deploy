@@ -1,3 +1,4 @@
 Dockerfiles/*
 logs/*
 _production
+config.yaml
