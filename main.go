@@ -3,14 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/acarl005/stripansi"
-	"github.com/spf13/viper"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
+
+	"github.com/acarl005/stripansi"
+	"github.com/spf13/viper"
 )
 
 type Payload struct {
@@ -23,6 +25,7 @@ type Payload struct {
 
 var defaultPort = "8000"
 var defaultPath = "/auto-deploy"
+var defaultToken = ""
 
 func main() {
 	viper.SetConfigName("config")
@@ -46,14 +49,21 @@ func main() {
 		path = defaultPath
 	}
 
-	http.HandleFunc(path, payloadHandler)
+	token := viper.GetString("token")
+	if token == "" {
+		token = defaultToken
+	}
+
+	http.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		payloadHandler(w, r, token)
+	})
 
 	fmt.Println("Server listening on port " + port + " ...")
 	fmt.Println("Auto deploy path: " + path)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-func payloadHandler(w http.ResponseWriter, r *http.Request) {
+func payloadHandler(w http.ResponseWriter, r *http.Request, token string) {
 	if r.Method == "POST" {
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -79,15 +89,22 @@ func payloadHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		RepoURL := payload.Repository.CloneURL
-		DefaultBranch := payload.Repository.DefaultBranch
-		RepoID := strconv.Itoa(payload.Repository.ID)
+		repoURL := payload.Repository.CloneURL
+		defaultBranch := payload.Repository.DefaultBranch
+		repoID := strconv.Itoa(payload.Repository.ID)
+		parts := strings.Split(repoURL, "github.com")
+		newRepoURL := fmt.Sprintf("%s%s@github.com%s", parts[0], token, parts[1])
 
-		// Execute build process in a goroutine
+		fmt.Println("Repo URL " + repoURL)
+		fmt.Println("Default Branch " + defaultBranch)
+		fmt.Println("Repo ID " + repoID)
+		fmt.Println("Token " + token)
+		fmt.Println("Repo URL With Token " + newRepoURL)
+
 		go func() {
-			buildContainer := exec.Command("./docker_builder.sh", "REPO_URL="+RepoURL, "DEFAULT_BRANCH="+DefaultBranch, "REPO_ID="+RepoID)
+			buildContainer := exec.Command("./docker_builder.sh", "REPO_URL="+repoURL, "DEFAULT_BRANCH="+defaultBranch, "REPO_ID="+repoID)
 
-			logFile, buildContainerError := os.Create("./logs/log-" + RepoID + ".log")
+			logFile, buildContainerError := os.Create("./logs/log-" + repoID + ".log")
 			if buildContainerError != nil {
 				panic(buildContainerError)
 			}
@@ -99,13 +116,13 @@ func payloadHandler(w http.ResponseWriter, r *http.Request) {
 			buildContainer.Wait()
 
 			if buildContainerError != nil {
-				fmt.Println("Deployment failed for "+RepoID+": ", buildContainerError)
+				fmt.Println("Deployment failed for "+repoID+": ", buildContainerError)
 			} else {
-				fmt.Println("Deployment for " + RepoID + " successful")
+				fmt.Println("Deployment for " + repoID + " successful")
 			}
 		}()
 
-		fmt.Fprint(w, "Deployment for "+RepoID+" started")
+		fmt.Fprint(w, "Deployment for "+repoID+" started")
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
